@@ -1,0 +1,142 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Karen Chu Sam"
+date: "29/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har>.
+
+
+## Libraries 
+
+```{r load library, warning=FALSE}
+library (caret)
+```
+
+## Load Data 
+
+Load the data from the urls. 
+
+```{r}
+data_trainingSet <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+data_testingSet <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+After loading the data, proceed to check the dimensions of the loaded data
+
+```{r}
+dim(data_trainingSet)
+dim(data_testingSet)
+```
+
+## Pre-process the data
+### Remove variables that have nearly zero variance
+```{r}
+nzv <- nearZeroVar(data_trainingSet)
+nzv <- nearZeroVar(data_testingSet)
+
+trainingSet <- data_trainingSet [ ,-nzv]
+testingSet <- data_testingSet [ ,-nzv]
+
+dim(trainingSet)
+dim(testingSet)
+```
+After removing the variables with zero variance, we still have 59 variables, from the 160.
+
+### Remove variables with NA values, if more than 95% of the observations of the variable are NA
+The following function returns TRUE, if the number of NAs in the column is lower than 95%. 
+```{r}
+column_index <- (colSums(is.na(trainingSet))/nrow(trainingSet)) < 0.95
+```
+Keep columns where the number of NAs is lower than 95%
+```{r}
+trainingSet <- trainingSet[, column_index == TRUE]
+testingSet <- testingSet [, column_index == TRUE]
+```
+### Remove irrelevant variables
+Remove variables that do not affect the model accuracy such as user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, num_window
+```{r}
+trainingSet <- trainingSet [, -c(1:7)]
+testingSet <- testingSet [, -c(1:7)]
+```
+
+Check the final dimension of both sets
+
+```{r}
+dim(trainingSet)
+dim(testingSet)
+```
+After cleaning the data, we end up with a data set with 52 relevant variables for the model. 
+
+### Data Partioning or k-fold cross validation
+
+In the trainingSet, we divide the data in training and validation set. The validation set will be used to test or validate our trained model. Finally, we use k-fold cross validation, with k=5 to train the model. 
+
+```{r}
+set.seed (1234)
+inTrain_index <- createDataPartition(y=trainingSet$classe, p=0.7, list=FALSE)
+
+training_data <- trainingSet [inTrain_index, ]
+validation_data <- trainingSet [-inTrain_index, ]
+control <- trainControl(method = 'cv', number = 5)
+```
+
+### Fit different type of models 
+
+#### Fit decision tree
+```{r}
+mod_decisionTree <- train (classe ~., method = "rpart", data =training_data, trControl = control)
+predictTree <- predict (mod_decisionTree, newdata=validation_data )
+cm_predictTree <- confusionMatrix(predictTree, factor(validation_data$classe))
+cm_predictTree
+```
+#### Fit random forest
+```{r}
+mod_rf <- train (classe ~., method = "rf", data =training_data, trControl = control, ntree=100)
+predict_rf <- predict (mod_rf, newdata=validation_data )
+cm_predict_rf <- confusionMatrix(predict_rf, factor(validation_data$classe))
+cm_predict_rf
+```
+
+#### Fit gradient boosting
+```{r}
+mod_gbm <- train (classe ~., method = "gbm", data =training_data, trControl = control, verbose = FALSE)
+predict_gbm <- predict (mod_gbm, newdata=validation_data )
+cm_predict_gbm <- confusionMatrix(predict_gbm, factor(validation_data$classe))
+cm_predict_gbm
+```
+
+Summarize the results of the three models
+```{r}
+predictTree_acc <- confusionMatrix(predictTree, factor(validation_data$classe))$overall['Accuracy']
+predict_rf_acc <- confusionMatrix(predict_rf, factor(validation_data$classe))$overall['Accuracy']
+predict_gbm_acc <- confusionMatrix(predict_gbm, factor(validation_data$classe))$overall['Accuracy']
+
+results <- data.frame (
+    Model = c ('Decision Tree', 'Random forest', 'Gbm'),
+    Accurancy = rbind(predictTree_acc, predict_rf_acc, predict_gbm_acc)
+)
+
+results
+```
+From the three models used in this paper, we observed that Random forest provides the highest accuracy. Therefore, we will select this model to predict the values in the test set. 
+
+### Prediction of the test set
+
+```{r}
+predict_testingSet <- predict(mod_rf, testingSet)
+predicted_results <- data.frame(
+    Testing_id = testingSet$problem_id,
+    predicted_values = predict_testingSet
+)
+
+predicted_results
+```
+
